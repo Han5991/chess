@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Chess, Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
+import Link from "next/link";
 
 type Difficulty = "easy" | "medium" | "hard";
 
@@ -107,30 +108,6 @@ export default function ChessGame() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const applyAIMove = useCallback((moveStr: string) => {
-    setGame((prevGame) => {
-      const gameCopy = new Chess(prevGame.fen());
-      const from = moveStr.substring(0, 2) as Square;
-      const to = moveStr.substring(2, 4) as Square;
-      const promotion = moveStr.length > 4 ? moveStr[4] : undefined;
-
-      try {
-        gameCopy.move({
-          from,
-          to,
-          promotion: promotion as "q" | "r" | "b" | "n" | undefined,
-        });
-        setMoveHistory(gameCopy.history());
-        updateGameStatus(gameCopy);
-        return gameCopy;
-      } catch {
-        // If the move is invalid, just return previous state
-        updateGameStatus(prevGame);
-        return prevGame;
-      }
-    });
-  }, []);
-
   const updateGameStatus = useCallback((g: Chess) => {
     if (g.isCheckmate()) {
       const winner = g.turn() === "w" ? "Black (AI)" : "White (You)";
@@ -152,6 +129,33 @@ export default function ChessGame() {
       setStatusType(g.turn() === "w" ? "your-turn" : "thinking");
     }
   }, []);
+
+  const applyAIMove = useCallback(
+    (moveStr: string) => {
+      setGame((prevGame) => {
+        const gameCopy = new Chess(prevGame.fen());
+        const from = moveStr.substring(0, 2) as Square;
+        const to = moveStr.substring(2, 4) as Square;
+        const promotion = moveStr.length > 4 ? moveStr[4] : undefined;
+
+        try {
+          gameCopy.move({
+            from,
+            to,
+            promotion: promotion as "q" | "r" | "b" | "n" | undefined,
+          });
+          setMoveHistory(gameCopy.history());
+          updateGameStatus(gameCopy);
+          return gameCopy;
+        } catch {
+          // If the move is invalid, just return previous state
+          updateGameStatus(prevGame);
+          return prevGame;
+        }
+      });
+    },
+    [updateGameStatus],
+  );
 
   const requestAIMove = useCallback(
     (fen: string) => {
@@ -236,6 +240,20 @@ export default function ChessGame() {
       <div className="game-header">
         <h1>♟ AI Chess</h1>
         <p>Stockfish 18 · Lite Engine · 브라우저에서 바로 대결</p>
+        <div style={{ marginTop: 8 }}>
+          <Link
+            href="/puzzle"
+            className="btn"
+            style={{
+              display: "inline-block",
+              padding: "6px 16px",
+              fontSize: 13,
+              backgroundColor: "rgba(255,255,255,0.1)",
+            }}
+          >
+            🧩 퍼즐 모드 플레이
+          </Link>
+        </div>
       </div>
 
       {/* Status Bar */}
