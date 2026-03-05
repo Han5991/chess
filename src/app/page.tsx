@@ -5,18 +5,24 @@ import { Chess, Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import Link from "next/link";
 
-type Difficulty = "easy" | "medium" | "hard";
+type Difficulty = "beginner" | "easy" | "medium" | "hard" | "expert" | "master";
 
 const DEPTH_MAP: Record<Difficulty, number> = {
-  easy: 3,
-  medium: 8,
-  hard: 15,
+  beginner: 1, // Depth 1: Very easy, often blunders
+  easy: 3, // Depth 3: Still makes some mistakes
+  medium: 5, // Depth 5: Intermediate level
+  hard: 8, // Depth 8: Advanced level
+  expert: 12, // Depth 12: Expert level
+  master: 15, // Depth 15: Master level (slowest)
 };
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
-  easy: "🟢 Easy",
-  medium: "🟡 Medium",
-  hard: "🔴 Hard",
+  beginner: "👶 초보자 (Depth 1)",
+  easy: "🟢 쉬움 (Depth 3)",
+  medium: "🟡 보통 (Depth 5)",
+  hard: "🟠 어려움 (Depth 8)",
+  expert: "🔴 전문가 (Depth 12)",
+  master: "👑 마스터 (Depth 15)",
 };
 
 const PIECE_UNICODE: Record<string, string> = {
