@@ -361,8 +361,7 @@ export default function ChessGame() {
               },
               darkSquareStyle: { backgroundColor: "#4a4a6a" },
               lightSquareStyle: { backgroundColor: "#8888a8" },
-              customDarkSquareStyle: customBoardSquareStyles,
-              customLightSquareStyle: customBoardSquareStyles,
+              squareStyles: customBoardSquareStyles,
             }}
           />
 
