@@ -70,6 +70,13 @@ export default function ChessGame() {
   const [statusType, setStatusType] = useState<string>("your-turn");
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [boardOrientation] = useState<"white" | "black">("white");
+  
+  // Teacher Mode States
+  const [teacherMode, setTeacherMode] = useState(false);
+  const [evaluation, setEvaluation] = useState<string>("0.0");
+  const [bestMove, setBestMove] = useState<string | null>(null);
+  const [showHint, setShowHint] = useState(false);
+
   const workerRef = useRef<Worker | null>(null);
   const [engineReady, setEngineReady] = useState(false);
   const pendingFenRef = useRef<string | null>(null);
@@ -97,24 +104,58 @@ export default function ChessGame() {
         }
       }
 
+      // Parse evaluation
+      if (msg.startsWith("info depth") && msg.includes("score")) {
+        const scoreMatch = msg.match(/score (cp|mate) (-?\d+)/);
+        if (scoreMatch) {
+          const type = scoreMatch[1];
+          const value = parseInt(scoreMatch[2]);
+          
+          // Adjust score for current side to move
+          const displayScore = game.turn() === "w" ? value : -value;
+          
+          if (type === "cp") {
+            setEvaluation((displayScore / 100).toFixed(1));
+          } else if (type === "mate") {
+            setEvaluation(`M${Math.abs(value)}`);
+          }
+        }
+        
+        const pvMatch = msg.match(/ pv (\w+)/);
+        if (pvMatch) {
+          setBestMove(pvMatch[1]);
+        }
+      }
+
       if (typeof msg === "string" && msg.startsWith("bestmove")) {
-        const bestMove = msg.split(" ")[1];
-        if (bestMove && bestMove !== "(none)") {
-          applyAIMove(bestMove);
+        const moveParts = msg.split(" ");
+        const move = moveParts[1];
+        if (move && move !== "(none)") {
+          // If it's AI's turn, apply it
+          if (game.turn() === "b") {
+            applyAIMove(move);
+          } else {
+            // If it's player's turn (eval finished), just store it
+            setBestMove(move);
+          }
         }
         setIsThinking(false);
       }
     };
 
     worker.postMessage("uci");
+    worker.postMessage("setoption name MultiPV value 1");
 
     return () => {
       worker.terminate();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [game]); // Need game to correctly orient evaluation
 
   const updateGameStatus = useCallback((g: Chess) => {
+    // Reset teacher mode specific states on new move
+    setShowHint(false);
+    
     if (g.isCheckmate()) {
       const winner = g.turn() === "w" ? "Black (AI)" : "White (You)";
       setGameStatus(`체크메이트! ${winner} 승리 🏆`);
@@ -167,8 +208,11 @@ export default function ChessGame() {
     (fen: string) => {
       if (!workerRef.current) return;
       setIsThinking(true);
-      setGameStatus("AI가 생각 중...");
-      setStatusType("thinking");
+      
+      if (game.turn() === "b") {
+        setGameStatus("AI가 생각 중...");
+        setStatusType("thinking");
+      }
 
       if (!engineReady) {
         pendingFenRef.current = fen;
@@ -177,11 +221,20 @@ export default function ChessGame() {
 
       setTimeout(() => {
         workerRef.current?.postMessage(`position fen ${fen}`);
-        workerRef.current?.postMessage(`go depth ${DEPTH_MAP[difficulty]}`);
+        // If it's player's turn, we just want a quick evaluation
+        const depth = game.turn() === "w" ? 10 : DEPTH_MAP[difficulty];
+        workerRef.current?.postMessage(`go depth ${depth}`);
       }, 200);
     },
-    [difficulty, engineReady],
+    [difficulty, engineReady, game],
   );
+
+  useEffect(() => {
+    // If teacher mode is toggled on during player's turn, request evaluation
+    if (teacherMode && game.turn() === "w" && !isThinking) {
+      requestAIMove(game.fen());
+    }
+  }, [teacherMode, game, isThinking, requestAIMove]);
 
   function handlePieceDrop({
     sourceSquare,
@@ -191,7 +244,7 @@ export default function ChessGame() {
     sourceSquare: string;
     targetSquare: string | null;
   }) {
-    if (isThinking || game.isGameOver() || !targetSquare) return false;
+    if (isThinking && game.turn() === "b" || game.isGameOver() || !targetSquare) return false;
 
     const gameCopy = new Chess(game.fen());
     try {
@@ -205,9 +258,10 @@ export default function ChessGame() {
       setGame(gameCopy);
       setMoveHistory(gameCopy.history());
 
-      if (!gameCopy.isGameOver()) {
-        requestAIMove(gameCopy.fen());
-      } else {
+      // Always request AI move/eval after player move
+      requestAIMove(gameCopy.fen());
+      
+      if (gameCopy.isGameOver()) {
         updateGameStatus(gameCopy);
       }
       return true;
@@ -223,8 +277,20 @@ export default function ChessGame() {
     setIsThinking(false);
     setGameStatus("당신의 차례입니다");
     setStatusType("your-turn");
+    setEvaluation("0.0");
+    setBestMove(null);
+    setShowHint(false);
     workerRef.current?.postMessage("ucinewgame");
     workerRef.current?.postMessage("isready");
+  }
+
+  // Custom styles for best move highlighting
+  const customBoardSquareStyles: Record<string, React.CSSProperties> = {};
+  if (showHint && bestMove) {
+    const from = bestMove.substring(0, 2);
+    const to = bestMove.substring(2, 4);
+    customBoardSquareStyles[from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+    customBoardSquareStyles[to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
   }
 
   // Move pairs for display
@@ -288,13 +354,15 @@ export default function ChessGame() {
               onPieceDrop: handlePieceDrop,
               boardOrientation: boardOrientation,
               animationDurationInMs: 250,
-              allowDragging: !isThinking && !game.isGameOver(),
+              allowDragging: (game.turn() === "w" || !isThinking) && !game.isGameOver(),
               boardStyle: {
                 borderRadius: "12px",
                 boxShadow: "0 8px 40px rgba(0, 0, 0, 0.5)",
               },
               darkSquareStyle: { backgroundColor: "#4a4a6a" },
               lightSquareStyle: { backgroundColor: "#8888a8" },
+              customDarkSquareStyle: customBoardSquareStyles,
+              customLightSquareStyle: customBoardSquareStyles,
             }}
           />
 
@@ -308,6 +376,64 @@ export default function ChessGame() {
 
         {/* Side Panel */}
         <div className="side-panel">
+          {/* Teacher Mode Panel */}
+          <div className="glass-card panel-section" style={{ borderColor: teacherMode ? "var(--accent-primary)" : "var(--border-glass)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>👨‍🏫 선생님 모드</h3>
+              <div 
+                className={`btn ${teacherMode ? "btn-primary" : "btn-secondary"}`}
+                style={{ padding: "4px 12px", fontSize: 11, minHeight: "auto" }}
+                onClick={() => setTeacherMode(!teacherMode)}
+              >
+                {teacherMode ? "ON" : "OFF"}
+              </div>
+            </div>
+
+            {teacherMode && (
+              <div className="fade-in">
+                <div style={{ 
+                  background: "rgba(0,0,0,0.2)", 
+                  borderRadius: 8, 
+                  padding: "8px 12px", 
+                  marginBottom: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between"
+                }}>
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>형세 분석</span>
+                  <span style={{ 
+                    fontSize: 16, 
+                    fontWeight: 700, 
+                    color: evaluation.startsWith("-") ? "var(--danger)" : "var(--success)" 
+                  }}>
+                    {evaluation.startsWith("M") ? evaluation : (parseFloat(evaluation) > 0 ? `+${evaluation}` : evaluation)}
+                  </span>
+                </div>
+
+                <div className="controls-row">
+                  <button 
+                    className="btn" 
+                    style={{ 
+                      width: "100%", 
+                      backgroundColor: showHint ? "var(--warning)" : "rgba(255,255,255,0.05)",
+                      fontSize: 13,
+                      border: "1px solid rgba(255,255,255,0.1)"
+                    }}
+                    onClick={() => setShowHint(!showHint)}
+                    disabled={!bestMove}
+                  >
+                    💡 {showHint ? "힌트 숨기기" : "최선의 수 보기"}
+                  </button>
+                </div>
+                {showHint && bestMove && (
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, textAlign: "center" }}>
+                    추천 수: {bestMove}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Controls */}
           <div className="glass-card panel-section">
             <h3>Controls</h3>
